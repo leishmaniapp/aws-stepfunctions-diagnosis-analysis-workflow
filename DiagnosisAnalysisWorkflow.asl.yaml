@@ -1,0 +1,72 @@
+Comment: A description of my state machine
+StartAt: CheckIfObjectExist
+States:
+  CheckIfObjectExist:
+    Type: Task
+    Next: DeleteIfExists
+    Parameters:
+      Bucket.$: $.reference.bucket
+      Key.$: $.reference.key
+    Resource: arn:aws:states:::aws-sdk:s3:headObject
+    ResultPath: null
+  DeleteIfExists:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:deleteItem
+    Parameters:
+      TableName: metadata-repository
+      Key:
+        ID:
+          S.$: $.id
+    Next: InsertItemIntoDynamoDB
+    Catch:
+      - ErrorEquals:
+          - States.TaskFailed
+        ResultPath: null
+        Next: InsertItemIntoDynamoDB
+        Comment: Ignore failure
+    ResultPath: null
+  InsertItemIntoDynamoDB:
+    Type: Task
+    Resource: arn:aws:states:::dynamodb:putItem
+    Parameters:
+      TableName: metadata-repository
+      Item:
+        ID:
+          S.$: $.id
+        disease:
+          S.$: $.disease
+        reference:
+          M:
+            bucket:
+              S.$: $.reference.bucket
+            key:
+              S.$: $.reference.key
+        date:
+          S.$: $.date
+        size:
+          N.$: States.Format('{}',$.size)
+        processed:
+          BOOL: false
+        diagnosis:
+          S.$: $.diagnosis
+        sample:
+          N.$: States.Format('{}',$.sample)
+    Next: CreateTopic
+    ResultPath: null
+  CreateTopic:
+    Type: Task
+    Next: SNSPublish
+    Parameters:
+      Name.$: $.disease
+    Resource: arn:aws:states:::aws-sdk:sns:createTopic
+    ResultPath: $.topic
+  SNSPublish:
+    Type: Task
+    Resource: arn:aws:states:::sns:publish
+    Parameters:
+      Message.$: $
+      TopicArn.$: $.topic.TopicArn
+    ResultPath: null
+    Next: Success
+  Success:
+    Type: Succeed
